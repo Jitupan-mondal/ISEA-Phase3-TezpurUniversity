@@ -17,5 +17,6 @@ This repository serves as a workspace to document my progress, store assignments
 - `Assignment_2/`: Completed tasks and scripts for the second assignment.
 - `Assignment_3/`: Completed tasks and scripts for the third assignment.
 - `Assignment_4/`: Completed tasks and scripts for the fourth assignment.
+- `Assignment_5/`: Completed tasks and scripts for the fifth assignment.
 
   _(Additional folders will be added as new assignments are distributed.)_
