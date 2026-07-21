@@ -1,0 +1,19 @@
+14:28:57,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
+14:35:20,LOGOUT,amit,10.0.0.2,disconnected
+14:36:47,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
+14:49:08,LOGIN_FAILED,priya,10.0.0.3,invalid credentials
+14:49:08,LOGOUT,priya,10.0.0.3,disconnected
+14:53:07,DUPLICATE_LOGIN,amit,10.0.0.4,rejected - already online
+14:53:07,LOGOUT,amit,10.0.0.4,disconnected
+14:55:59,LOGOUT,amit,10.0.0.2,disconnected
+14:56:33,LOGIN_SUCCESS,amit,10.0.0.4,authenticated
+15:09:11,LOGOUT,amit,10.0.0.4,disconnected
+15:09:33,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
+15:20:48,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
+15:21:18,LOGIN_FAILED,priya,10.0.0.3,invalid credentials
+15:21:18,LOGOUT,priya,10.0.0.3,disconnected
+15:21:47,DUPLICATE_LOGIN,amit,10.0.0.4,rejected - already online
+15:21:47,LOGOUT,amit,10.0.0.4,disconnected
+15:21:57,LOGOUT,amit,10.0.0.2,disconnected
+15:22:02,LOGIN_SUCCESS,amit,10.0.0.4,authenticated
+15:22:11,LOGOUT,amit,10.0.0.4,disconnected
