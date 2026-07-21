@@ -44,6 +44,7 @@ class NetworkClient:
         self.username = None
         self.password = None
         self._manual_disconnect = False
+        self._session_id = 0
 
     def _read_line(self):
         while b"\n" not in self._buffer:
@@ -75,8 +76,10 @@ class NetworkClient:
                 self.password = password
                 self._manual_disconnect = False
                 self.running = True
-                threading.Thread(target=self.receive_loop, daemon=True).start()
-                threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+                self._session_id += 1
+                session_id = self._session_id
+                threading.Thread(target=self.receive_loop, args=(session_id,), daemon=True).start()
+                threading.Thread(target=self.heartbeat_loop, args=(session_id,), daemon=True).start()
                 return True, "ok"
             else:
                 self.sock.close()
@@ -85,34 +88,38 @@ class NetworkClient:
             print(f"Connection error: {e}")
             return False, "connection_error"
 
-    def receive_loop(self):
+    def receive_loop(self, session_id):
         if self._buffer:
             leftover = self._buffer.decode('utf-8', errors='ignore')
             self._buffer = b""
             if leftover:
                 self.msg_queue.put(leftover)
-        while self.running:
+        while self.running and session_id == self._session_id:
             try:
                 data = self.sock.recv(1024).decode('utf-8')
                 if data:
                     self.msg_queue.put(data)
                 else:
-                    self._handle_disconnect()
+                    self._handle_disconnect(session_id)
                     break
             except Exception:
-                self._handle_disconnect()
+                self._handle_disconnect(session_id)
                 break
 
-    def _handle_disconnect(self):
+    def _handle_disconnect(self, session_id):
+        if session_id != self._session_id:
+            return
         self.running = False
         if self._manual_disconnect:
             self.msg_queue.put("[SYSTEM] Disconnected from server.")
             return
         self.msg_queue.put("[SYSTEM] Connection lost. Attempting to reconnect...")
         if self._try_reconnect():
+            self._session_id += 1
+            new_session_id = self._session_id
             self.msg_queue.put("[SYSTEM] Reconnected successfully.")
-            threading.Thread(target=self.receive_loop, daemon=True).start()
-            threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+            threading.Thread(target=self.receive_loop, args=(new_session_id,), daemon=True).start()
+            threading.Thread(target=self.heartbeat_loop, args=(new_session_id,), daemon=True).start()
         else:
             self.msg_queue.put("[SYSTEM] Reconnection failed. Please restart the application.")
 
@@ -120,8 +127,12 @@ class NetworkClient:
         max_attempts = CONFIG.get("reconnect_max_attempts", 5)
         backoff_base = CONFIG.get("reconnect_backoff_base_seconds", 1)
         for attempt in range(1, max_attempts + 1):
+            if self._manual_disconnect:
+                return False
             wait = min(backoff_base * (2 ** (attempt - 1)), 30)
             time.sleep(wait)
+            if self._manual_disconnect:
+                return False
             try:
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sock.connect((self.host, self.port))
@@ -143,10 +154,10 @@ class NetworkClient:
                 continue
         return False
 
-    def heartbeat_loop(self):
-        while self.running:
+    def heartbeat_loop(self, session_id):
+        while self.running and session_id == self._session_id:
             time.sleep(self.heartbeat_interval)
-            if self.running:
+            if self.running and session_id == self._session_id:
                 self.send("/heartbeat")
 
     def send(self, message):
