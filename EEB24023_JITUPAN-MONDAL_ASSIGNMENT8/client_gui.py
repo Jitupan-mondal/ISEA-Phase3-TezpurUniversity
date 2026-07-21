@@ -11,7 +11,9 @@ DEFAULT_CLIENT_CONFIG = {
     "server_host": "10.0.0.1",
     "server_port": 5000,
     "heartbeat_interval_seconds": 10,
-    "gui_poll_interval_ms": 100
+    "gui_poll_interval_ms": 100,
+    "reconnect_max_attempts": 5,
+    "reconnect_backoff_base_seconds": 1
 }
 
 def load_config(path="config.json"):
@@ -39,6 +41,9 @@ class NetworkClient:
         self.running = False
         self.msg_queue = queue.Queue()
         self._buffer = b""
+        self.username = None
+        self.password = None
+        self._manual_disconnect = False
 
     def _read_line(self):
         while b"\n" not in self._buffer:
@@ -54,22 +59,21 @@ class NetworkClient:
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.host, self.port))
-
             login_request = json.dumps({
                 "action": "login",
                 "username": username,
                 "password": password
             }) + "\n"
             self.sock.sendall(login_request.encode('utf-8'))
-
             line = self._read_line()
             if line is None:
                 self.sock.close()
                 return False, "no_response"
-
             response = json.loads(line.decode('utf-8'))
-
             if response.get("status") == "success":
+                self.username = username
+                self.password = password
+                self._manual_disconnect = False
                 self.running = True
                 threading.Thread(target=self.receive_loop, daemon=True).start()
                 threading.Thread(target=self.heartbeat_loop, daemon=True).start()
@@ -77,7 +81,6 @@ class NetworkClient:
             else:
                 self.sock.close()
                 return False, response.get("reason", "unknown_error")
-
         except Exception as e:
             print(f"Connection error: {e}")
             return False, "connection_error"
@@ -88,23 +91,59 @@ class NetworkClient:
             self._buffer = b""
             if leftover:
                 self.msg_queue.put(leftover)
-
         while self.running:
             try:
                 data = self.sock.recv(1024).decode('utf-8')
                 if data:
                     self.msg_queue.put(data)
                 else:
-                    self.running = False
-                    self.msg_queue.put("[SYSTEM] Disconnected from server.")
+                    self._handle_disconnect()
                     break
             except Exception:
-                self.running = False
+                self._handle_disconnect()
                 break
 
+    def _handle_disconnect(self):
+        self.running = False
+        if self._manual_disconnect:
+            self.msg_queue.put("[SYSTEM] Disconnected from server.")
+            return
+        self.msg_queue.put("[SYSTEM] Connection lost. Attempting to reconnect...")
+        if self._try_reconnect():
+            self.msg_queue.put("[SYSTEM] Reconnected successfully.")
+            threading.Thread(target=self.receive_loop, daemon=True).start()
+            threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+        else:
+            self.msg_queue.put("[SYSTEM] Reconnection failed. Please restart the application.")
+
+    def _try_reconnect(self):
+        max_attempts = CONFIG.get("reconnect_max_attempts", 5)
+        backoff_base = CONFIG.get("reconnect_backoff_base_seconds", 1)
+        for attempt in range(1, max_attempts + 1):
+            wait = min(backoff_base * (2 ** (attempt - 1)), 30)
+            time.sleep(wait)
+            try:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.connect((self.host, self.port))
+                self._buffer = b""
+                login_request = json.dumps({
+                    "action": "login",
+                    "username": self.username,
+                    "password": self.password
+                }) + "\n"
+                self.sock.sendall(login_request.encode('utf-8'))
+                line = self._read_line()
+                if line is None:
+                    continue
+                response = json.loads(line.decode('utf-8'))
+                if response.get("status") == "success":
+                    self.running = True
+                    return True
+            except Exception:
+                continue
+        return False
+
     def heartbeat_loop(self):
-        """Sends a lightweight liveness signal so the server's reaper
-        thread does not mistake an idle-but-alive client for a dead one."""
         while self.running:
             time.sleep(self.heartbeat_interval)
             if self.running:
@@ -118,9 +157,13 @@ class NetworkClient:
                 print(f"Send error: {e}")
 
     def disconnect(self):
+        self._manual_disconnect = True
         self.running = False
         if self.sock:
-            self.sock.close()
+            try:
+                self.sock.close()
+            except OSError:
+                pass
 
 
 # ==========================================
@@ -252,6 +295,9 @@ LOGIN_ERROR_MESSAGES = {
     "bad_request": "Login failed due to a protocol error.",
     "connection_error": "Could not connect to the server.",
     "no_response": "No response received from the server.",
+    "invalid_username": "Username must be 3-20 letters, digits, or underscores.",
+    "account_locked": "Too many failed attempts. Account temporarily locked.",
+    "server_busy": "Server busy. Try again later."
 }
 
 

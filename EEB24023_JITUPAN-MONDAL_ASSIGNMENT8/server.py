@@ -7,11 +7,19 @@ import json
 import hashlib
 import time
 import signal
+import re
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 USERS_FILE = "users.json"
 CHAT_LOG = "chat_history.csv"
 SERVER_LOG = "server_log.txt"
 SECURITY_LOG = "security_log.txt"
+PERF_LOG = "performance_results.csv"
 
 DEFAULT_SERVER_CONFIG = {
     "host": "0.0.0.0",
@@ -19,7 +27,12 @@ DEFAULT_SERVER_CONFIG = {
     "listen_backlog": 20,
     "recv_buffer_size": 4096,
     "heartbeat_timeout_seconds": 30,
-    "reaper_interval_seconds": 5
+    "reaper_interval_seconds": 5,
+    "max_failed_attempts": 5,
+    "lockout_duration_seconds": 60,
+    "max_message_length": 500,
+    "max_concurrent_clients": 15,
+    "perf_sample_interval_seconds": 5
 }
 
 def load_config(path="config.json"):
@@ -34,6 +47,34 @@ def load_config(path="config.json"):
     return cfg
 
 CONFIG = load_config()
+
+connection_semaphore = threading.Semaphore(CONFIG["max_concurrent_clients"])
+
+login_attempts = {}
+login_lock = threading.Lock()
+
+def validate_username(username):
+    return bool(re.fullmatch(r"[A-Za-z0-9_]{3,20}", username))
+
+def is_locked_out(username):
+    with login_lock:
+        info = login_attempts.get(username)
+        if info and info["locked_until"] > time.time():
+            return True, info["locked_until"] - time.time()
+        return False, 0
+
+def record_failed_login(username):
+    with login_lock:
+        info = login_attempts.setdefault(username, {"count": 0, "locked_until": 0})
+        info["count"] += 1
+        if info["count"] >= CONFIG["max_failed_attempts"]:
+            info["locked_until"] = time.time() + CONFIG["lockout_duration_seconds"]
+            info["count"] = 0
+
+def record_successful_login(username):
+    with login_lock:
+        login_attempts.pop(username, None)
+
 HOST = CONFIG["host"]
 PORT = CONFIG["port"]
 
@@ -54,6 +95,20 @@ if not os.path.exists(SERVER_LOG):
 if not os.path.exists(SECURITY_LOG):
     open(SECURITY_LOG, "w").close()
 
+if not os.path.exists(PERF_LOG):
+    with open(PERF_LOG, "w", newline="") as f:
+        csv.writer(f).writerow(
+            ["timestamp", "active_connections", "messages_per_sec", 
+             "avg_latency_ms", "cpu_percent", "memory_mb"]
+        )
+
+perf_lock = threading.Lock()
+latency_samples = []
+
+if PSUTIL_AVAILABLE:
+    _perf_process = psutil.Process(os.getpid())
+    _perf_process.cpu_percent(interval=None)  
+
 
 def load_users():
     if not os.path.exists(USERS_FILE):
@@ -61,23 +116,18 @@ def load_users():
     with open(USERS_FILE, "r") as f:
         return json.load(f)
 
-
 USERS = load_users()
-
 
 def timestamp():
     return datetime.datetime.now().strftime("%H:%M:%S")
 
-
 def hash_password(password):
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
 
 def verify_credentials(username, password):
     if username not in USERS:
         return False
     return USERS[username] == hash_password(password)
-
 
 def log_server_event(event, username, ip):
     line = f"{timestamp()},{event},{username},{ip}\n"
@@ -85,18 +135,15 @@ def log_server_event(event, username, ip):
         f.write(line)
     print(f"[LOG] {line.strip()}")
 
-
 def log_security(event, username, ip, detail=""):
     line = f"{timestamp()},{event},{username},{ip},{detail}\n"
     with open(SECURITY_LOG, "a") as f:
         f.write(line)
     print(f"[SECURITY] {line.strip()}")
 
-
 def log_chat(sender, receiver, msg_type, message):
     with open(CHAT_LOG, "a", newline="") as f:
         csv.writer(f).writerow([timestamp(), sender, receiver, msg_type, message])
-
 
 def get_last_messages(username, n=5):
     if not os.path.exists(CHAT_LOG):
@@ -106,14 +153,12 @@ def get_last_messages(username, n=5):
     sent_by_user = [r for r in rows if len(r) == 5 and r[1] == username]
     return sent_by_user[-n:]
 
-
 def find_socket_by_username(username):
     with clients_lock:
         for sock, info in clients.items():
             if info["username"] == username:
                 return sock
     return None
-
 
 def broadcast(message):
     encoded = message.encode("utf-8")
@@ -124,7 +169,6 @@ def broadcast(message):
             sock.sendall(encoded)
         except Exception:
             pass
-
 
 def read_login_line(conn):
     """Reads bytes until a newline is found. Returns (line_bytes, remainder_bytes).
@@ -138,12 +182,21 @@ def read_login_line(conn):
     line, _, rest = buffer.partition(b"\n")
     return line, rest
 
-
 def process_message(conn, username, message):
     if not message:
         return
 
     if message == "/heartbeat":
+        return
+
+    if len(message) > CONFIG["max_message_length"]:
+        conn.sendall(b"[SERVER] Message rejected: exceeds maximum length.\n")
+        log_security("INVALID_INPUT", username, "-", f"oversized message ({len(message)} chars)")
+        return
+
+    if message.startswith("/") and message != "/list" and not message.startswith("/msg "):
+        conn.sendall(f"[SERVER] Unsupported command: {message.split()[0]}\n".encode())
+        log_security("INVALID_INPUT", username, "-", f"unsupported command: {message}")
         return
 
     stats["messages"] += 1
@@ -174,7 +227,6 @@ def process_message(conn, username, message):
     stats["broadcasts"] += 1
     broadcast(f"[{username}] {message}\n")
 
-
 def close_client_connection(conn):
     """Shared cleanup for both the reaper thread and graceful shutdown.
     Closing the socket unblocks the owning handle_client() thread's recv(),
@@ -187,7 +239,6 @@ def close_client_connection(conn):
         conn.close()
     except OSError:
         pass
-
 
 def reap_stale_clients():
     """Background thread: closes sockets that haven't sent anything
@@ -205,11 +256,66 @@ def reap_stale_clients():
             print(f"[REAPER] {uname} timed out, closing connection")
             close_client_connection(conn)
 
+def record_latency(sample_ms):
+    with perf_lock:
+        latency_samples.append(sample_ms)
+
+def get_cpu_percent():
+    if PSUTIL_AVAILABLE:
+        return _perf_process.cpu_percent(interval=None)
+    try:
+        return os.getloadavg()[0] * 100 / os.cpu_count()
+    except (OSError, AttributeError):
+        return 0.0
+
+def get_memory_mb():
+    if PSUTIL_AVAILABLE:
+        return _perf_process.memory_info().rss / (1024 * 1024)
+    try:
+        with open(f"/proc/{os.getpid()}/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024
+    except OSError:
+        pass
+    return 0.0
+
+def performance_monitor():
+    interval = CONFIG.get("perf_sample_interval_seconds", 5)
+    last_msg_count = 0
+    while not shutdown_event.wait(interval):
+        with clients_lock:
+            active = len(clients)
+        current_msg_count = stats["messages"]
+        msgs_per_sec = (current_msg_count - last_msg_count) / interval
+        last_msg_count = current_msg_count
+        
+        with perf_lock:
+            samples = latency_samples[:]
+            latency_samples.clear()
+            
+        avg_latency = sum(samples) / len(samples) if samples else 0.0
+        
+        with open(PERF_LOG, "a", newline="") as f:
+            csv.writer(f).writerow([
+                timestamp(), active, round(msgs_per_sec, 2),
+                round(avg_latency, 2), round(get_cpu_percent(), 2),
+                round(get_memory_mb(), 2)
+            ])
 
 def handle_client(conn, addr):
     ip = addr[0]
     port = addr[1]
     username = None
+
+    if not connection_semaphore.acquire(blocking=False):
+        try:
+            conn.sendall((json.dumps({"status": "error", "reason": "server_busy"}) + "\n").encode())
+        except OSError:
+            pass
+        conn.close()
+        print(f"[SERVER] Rejected {addr} - max concurrent clients reached")
+        return
 
     try:
         line, remainder = read_login_line(conn)
@@ -237,11 +343,27 @@ def handle_client(conn, addr):
             conn.close()
             return
 
+        if not validate_username(username):
+            log_security("LOGIN_REJECTED", username, ip, "invalid username format")
+            conn.sendall((json.dumps({"status": "error", "reason": "invalid_username"}) + "\n").encode())
+            conn.close()
+            return
+
+        locked, remaining = is_locked_out(username)
+        if locked:
+            log_security("LOGIN_BLOCKED", username, ip, f"locked out for {int(remaining)}s")
+            conn.sendall((json.dumps({"status": "error", "reason": "account_locked"}) + "\n").encode())
+            conn.close()
+            return
+
         if not verify_credentials(username, password):
+            record_failed_login(username)
             log_security("LOGIN_FAILED", username, ip, "invalid credentials")
             conn.sendall((json.dumps({"status": "error", "reason": "invalid_credentials"}) + "\n").encode())
             conn.close()
             return
+
+        record_successful_login(username)
 
         with clients_lock:
             if username in logged_in_users:
@@ -284,7 +406,9 @@ def handle_client(conn, addr):
                 with clients_lock:
                     if conn in clients:
                         clients[conn]["last_seen"] = time.time()
+                t0 = time.perf_counter()
                 process_message(conn, username, leftover_text)
+                record_latency((time.perf_counter() - t0) * 1000)
 
         while True:
             data = conn.recv(CONFIG["recv_buffer_size"])
@@ -296,7 +420,9 @@ def handle_client(conn, addr):
             with clients_lock:
                 if conn in clients:
                     clients[conn]["last_seen"] = time.time()
+            t0 = time.perf_counter()
             process_message(conn, username, message)
+            record_latency((time.perf_counter() - t0) * 1000)
 
     except Exception as e:
         print(f"[ERROR] {username or addr}: {e}")
@@ -311,7 +437,7 @@ def handle_client(conn, addr):
             log_server_event("DISCONNECTED", username, ip)
             log_security("LOGOUT", username, ip, "disconnected")
             broadcast(f"[SERVER] {username} has left the chat.\n")
-
+        connection_semaphore.release()
 
 def graceful_shutdown(server_sock):
     """Notifies connected clients, closes their sockets, and releases
@@ -333,11 +459,9 @@ def graceful_shutdown(server_sock):
           f"Broadcasts={stats['broadcasts']} Private={stats['private']}")
     print("[SERVER] Shutdown complete.")
 
-
 def _signal_handler(signum, frame):
     print(f"\n[SERVER] Received signal {signum}, initiating graceful shutdown...")
     shutdown_event.set()
-
 
 def main():
     signal.signal(signal.SIGINT, _signal_handler)
@@ -352,6 +476,7 @@ def main():
     print(f"[SERVER] Listening on {HOST}:{PORT}")
     
     threading.Thread(target=reap_stale_clients, daemon=True).start()
+    threading.Thread(target=performance_monitor, daemon=True).start()
     
     while not shutdown_event.is_set():
         try:
@@ -366,7 +491,6 @@ def main():
         t.start()
         
     graceful_shutdown(server)
-
 
 if __name__ == "__main__":
     main()
