@@ -84,6 +84,7 @@ clients_lock = threading.Lock()
 shutdown_event = threading.Event()
 
 stats = {"messages": 0, "broadcasts": 0, "private": 0}
+stats_lock = threading.Lock()
 
 if not os.path.exists(CHAT_LOG):
     with open(CHAT_LOG, "w", newline="") as f:
@@ -199,7 +200,8 @@ def process_message(conn, username, message):
         log_security("INVALID_INPUT", username, "-", f"unsupported command: {message}")
         return
 
-    stats["messages"] += 1
+    with stats_lock:
+        stats["messages"] += 1
 
     if message == "/list":
         with clients_lock:
@@ -218,13 +220,15 @@ def process_message(conn, username, message):
                 target_sock.sendall(f"[PM from {username}] {priv_msg}\n".encode())
                 conn.sendall(f"[PM to {target_user}] {priv_msg}\n".encode())
                 log_chat(username, target_user, "private", priv_msg)
-                stats["private"] += 1
+                with stats_lock:
+                    stats["private"] += 1
             else:
                 conn.sendall(f"[SERVER] User '{target_user}' not found.\n".encode())
         return
 
     log_chat(username, "ALL", "broadcast", message)
-    stats["broadcasts"] += 1
+    with stats_lock:
+        stats["broadcasts"] += 1
     broadcast(f"[{username}] {message}\n")
 
 def close_client_connection(conn):
@@ -286,7 +290,8 @@ def performance_monitor():
     while not shutdown_event.wait(interval):
         with clients_lock:
             active = len(clients)
-        current_msg_count = stats["messages"]
+        with stats_lock:
+            current_msg_count = stats["messages"]
         msgs_per_sec = (current_msg_count - last_msg_count) / interval
         last_msg_count = current_msg_count
         
