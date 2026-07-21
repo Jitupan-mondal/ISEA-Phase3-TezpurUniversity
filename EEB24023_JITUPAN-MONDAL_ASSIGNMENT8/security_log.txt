@@ -1,19 +1,92 @@
-14:28:57,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
-14:35:20,LOGOUT,amit,10.0.0.2,disconnected
-14:36:47,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
-14:49:08,LOGIN_FAILED,priya,10.0.0.3,invalid credentials
-14:49:08,LOGOUT,priya,10.0.0.3,disconnected
-14:53:07,DUPLICATE_LOGIN,amit,10.0.0.4,rejected - already online
-14:53:07,LOGOUT,amit,10.0.0.4,disconnected
-14:55:59,LOGOUT,amit,10.0.0.2,disconnected
-14:56:33,LOGIN_SUCCESS,amit,10.0.0.4,authenticated
-15:09:11,LOGOUT,amit,10.0.0.4,disconnected
-15:09:33,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
-15:20:48,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
-15:21:18,LOGIN_FAILED,priya,10.0.0.3,invalid credentials
-15:21:18,LOGOUT,priya,10.0.0.3,disconnected
-15:21:47,DUPLICATE_LOGIN,amit,10.0.0.4,rejected - already online
-15:21:47,LOGOUT,amit,10.0.0.4,disconnected
-15:21:57,LOGOUT,amit,10.0.0.2,disconnected
-15:22:02,LOGIN_SUCCESS,amit,10.0.0.4,authenticated
-15:22:11,LOGOUT,amit,10.0.0.4,disconnected
+20:42:39,LOGIN_SUCCESS,jitu,10.0.0.2,authenticated
+20:52:19,LOGIN_SUCCESS,amit,10.0.0.3,authenticated
+20:54:00,LOGOUT,amit,10.0.0.3,disconnected
+20:54:00,LOGOUT,jitu,10.0.0.2,disconnected
+20:58:53,LOGIN_SUCCESS,jitu,10.0.0.2,authenticated
+20:59:37,LOGOUT,jitu,10.0.0.2,disconnected
+21:01:31,LOGIN_SUCCESS,sneha,10.0.0.2,authenticated
+21:01:47,LOGOUT,sneha,10.0.0.2,disconnected
+21:02:18,LOGIN_SUCCESS,sneha,10.0.0.2,authenticated
+21:03:50,LOGOUT,sneha,10.0.0.2,disconnected
+21:05:24,LOGIN_REJECTED,ab,10.0.0.2,invalid username format
+21:05:24,LOGOUT,ab,10.0.0.2,disconnected
+21:06:32,LOGIN_FAILED,puja,10.0.0.2,invalid credentials
+21:06:32,LOGOUT,puja,10.0.0.2,disconnected
+21:06:36,LOGIN_FAILED,puja,10.0.0.2,invalid credentials
+21:06:36,LOGOUT,puja,10.0.0.2,disconnected
+21:06:39,LOGIN_FAILED,puja,10.0.0.2,invalid credentials
+21:06:39,LOGOUT,puja,10.0.0.2,disconnected
+21:06:44,LOGIN_FAILED,puja,10.0.0.2,invalid credentials
+21:06:44,LOGOUT,puja,10.0.0.2,disconnected
+21:06:46,LOGIN_FAILED,puja,10.0.0.2,invalid credentials
+21:06:46,LOGOUT,puja,10.0.0.2,disconnected
+21:06:49,LOGIN_BLOCKED,puja,10.0.0.2,locked out for 56s
+21:06:49,LOGOUT,puja,10.0.0.2,disconnected
+21:07:05,LOGIN_BLOCKED,puja,10.0.0.2,locked out for 41s
+21:07:05,LOGOUT,puja,10.0.0.2,disconnected
+21:07:33,LOGIN_SUCCESS,arjun,10.0.0.2,authenticated
+21:24:43,INVALID_INPUT,arjun,-,oversized message (1157 chars)
+21:25:26,INVALID_INPUT,arjun,-,unsupported command: /footbar
+21:26:30,LOGOUT,arjun,10.0.0.2,disconnected
+21:29:53,LOGIN_FAILED,priya,10.0.0.2,invalid credentials
+21:29:53,LOGOUT,priya,10.0.0.2,disconnected
+21:30:02,LOGIN_SUCCESS,priya,10.0.0.2,authenticated
+21:30:15,LOGIN_SUCCESS,rahul,10.0.0.3,authenticated
+21:30:29,LOGIN_SUCCESS,puja,10.0.0.4,authenticated
+21:30:44,LOGIN_SUCCESS,kiran,10.0.0.5,authenticated
+21:31:01,LOGIN_SUCCESS,vikram,10.0.0.6,authenticated
+21:36:47,LOGOUT,priya,10.0.0.2,disconnected
+21:36:50,LOGOUT,rahul,10.0.0.3,disconnected
+21:36:53,LOGOUT,puja,10.0.0.4,disconnected
+21:36:55,LOGOUT,kiran,10.0.0.5,disconnected
+21:36:58,LOGOUT,vikram,10.0.0.6,disconnected
+21:41:21,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
+21:41:35,LOGIN_SUCCESS,priya,10.0.0.3,authenticated
+21:41:46,LOGIN_SUCCESS,rahul,10.0.0.4,authenticated
+21:42:02,LOGIN_SUCCESS,sneha,10.0.0.5,authenticated
+21:42:19,LOGIN_SUCCESS,jitu,10.0.0.6,authenticated
+21:42:33,LOGIN_SUCCESS,puja,10.0.0.7,authenticated
+21:42:59,LOGIN_SUCCESS,kiran,10.0.0.8,authenticated
+21:43:25,LOGIN_SUCCESS,vikram,10.0.0.9,authenticated
+21:50:12,LOGOUT,vikram,10.0.0.9,disconnected
+21:50:15,LOGOUT,kiran,10.0.0.8,disconnected
+21:50:17,LOGOUT,puja,10.0.0.7,disconnected
+21:50:20,LOGOUT,jitu,10.0.0.6,disconnected
+21:50:23,LOGOUT,sneha,10.0.0.5,disconnected
+21:50:26,LOGOUT,rahul,10.0.0.4,disconnected
+21:50:28,LOGOUT,priya,10.0.0.3,disconnected
+21:50:30,LOGOUT,amit,10.0.0.2,disconnected
+21:56:07,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
+21:56:24,LOGIN_SUCCESS,priya,10.0.0.3,authenticated
+21:56:41,LOGIN_SUCCESS,rahul,10.0.0.4,authenticated
+21:56:54,LOGIN_FAILED,sneha,10.0.0.5,invalid credentials
+21:56:54,LOGOUT,sneha,10.0.0.5,disconnected
+21:56:58,LOGIN_SUCCESS,sneha,10.0.0.5,authenticated
+21:57:10,LOGIN_SUCCESS,jitu,10.0.0.6,authenticated
+21:57:21,LOGIN_SUCCESS,puja,10.0.0.7,authenticated
+21:57:33,LOGIN_SUCCESS,kiran,10.0.0.8,authenticated
+21:57:47,LOGIN_FAILED,vikram,10.0.0.9,invalid credentials
+21:57:47,LOGOUT,vikram,10.0.0.9,disconnected
+21:57:55,LOGIN_SUCCESS,vikram,10.0.0.9,authenticated
+21:58:12,LOGIN_SUCCESS,rohit,10.0.0.10,authenticated
+21:59:31,LOGIN_SUCCESS,arjun,10.0.0.11,authenticated
+22:03:46,LOGOUT,arjun,10.0.0.11,disconnected
+22:03:48,LOGOUT,puja,10.0.0.7,disconnected
+22:03:50,LOGOUT,kiran,10.0.0.8,disconnected
+22:03:52,LOGOUT,vikram,10.0.0.9,disconnected
+22:03:53,LOGOUT,rohit,10.0.0.10,disconnected
+22:03:54,LOGOUT,jitu,10.0.0.6,disconnected
+22:03:55,LOGOUT,sneha,10.0.0.5,disconnected
+22:03:56,LOGOUT,rahul,10.0.0.4,disconnected
+22:03:57,LOGOUT,priya,10.0.0.3,disconnected
+22:03:58,LOGOUT,amit,10.0.0.2,disconnected
+22:08:19,LOGIN_SUCCESS,amit,10.0.0.2,authenticated
+22:10:55,LOGIN_SUCCESS,priya,10.0.0.3,authenticated
+22:11:05,LOGIN_SUCCESS,rahul,10.0.0.4,authenticated
+22:13:26,LOGOUT,rahul,10.0.0.4,disconnected
+22:13:28,LOGOUT,priya,10.0.0.3,disconnected
+22:13:28,LOGOUT,amit,10.0.0.2,disconnected
+22:23:35,LOGIN_SUCCESS,jitu,10.0.0.2,authenticated
+22:25:27,INVALID_INPUT,jitu,-,unsupported command: /hello i am testing wireshark broadcast message
+22:25:39,INVALID_INPUT,jitu,-,unsupported command: /private_message
+22:32:14,LOGOUT,jitu,10.0.0.2,disconnected
