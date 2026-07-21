@@ -6,6 +6,7 @@ import csv
 import json
 import hashlib
 import time
+import signal
 
 USERS_FILE = "users.json"
 CHAT_LOG = "chat_history.csv"
@@ -39,6 +40,7 @@ PORT = CONFIG["port"]
 clients = {}
 logged_in_users = set()
 clients_lock = threading.Lock()
+shutdown_event = threading.Event()
 
 stats = {"messages": 0, "broadcasts": 0, "private": 0}
 
@@ -138,13 +140,10 @@ def read_login_line(conn):
 
 
 def process_message(conn, username, message):
-    """Handles one plain-text chat command/message after login is complete."""
     if not message:
         return
 
     if message == "/heartbeat":
-        # Lightweight liveness signal; last_seen is refreshed by the caller.
-        # No logging, no broadcast, no stats increment.
         return
 
     stats["messages"] += 1
@@ -176,15 +175,26 @@ def process_message(conn, username, message):
     broadcast(f"[{username}] {message}\n")
 
 
+def close_client_connection(conn):
+    """Shared cleanup for both the reaper thread and graceful shutdown.
+    Closing the socket unblocks the owning handle_client() thread's recv(),
+    which then runs its existing finally block (logging, dict cleanup, broadcast)."""
+    try:
+        conn.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        conn.close()
+    except OSError:
+        pass
+
+
 def reap_stale_clients():
     """Background thread: closes sockets that haven't sent anything
-    (including heartbeats) within heartbeat_timeout_seconds. Closing the
-    socket unblocks the client's handle_client() recv() loop, which then
-    performs its normal cleanup/logging in the except/finally block."""
+    (including heartbeats) within heartbeat_timeout_seconds."""
     timeout = CONFIG["heartbeat_timeout_seconds"]
     interval = CONFIG["reaper_interval_seconds"]
-    while True:
-        time.sleep(interval)
+    while not shutdown_event.wait(interval):
         now = time.time()
         stale = []
         with clients_lock:
@@ -193,14 +203,7 @@ def reap_stale_clients():
                     stale.append((conn, info["username"]))
         for conn, uname in stale:
             print(f"[REAPER] {uname} timed out, closing connection")
-            try:
-                conn.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            try:
-                conn.close()
-            except OSError:
-                pass
+            close_client_connection(conn)
 
 
 def handle_client(conn, addr):
@@ -310,28 +313,59 @@ def handle_client(conn, addr):
             broadcast(f"[SERVER] {username} has left the chat.\n")
 
 
+def graceful_shutdown(server_sock):
+    """Notifies connected clients, closes their sockets, and releases
+    the listening socket before the process exits."""
+    print("[SERVER] Notifying connected clients of shutdown...")
+    broadcast("[SERVER] Server is shutting down. You will be disconnected.\n")
+    with clients_lock:
+        conns = list(clients.keys())
+    for conn in conns:
+        close_client_connection(conn)
+    time.sleep(0.5)
+    try:
+        server_sock.close()
+    except OSError:
+        pass
+    with clients_lock:
+        online = len(clients)
+    print(f"[STATS] Online={online} Msgs={stats['messages']} "
+          f"Broadcasts={stats['broadcasts']} Private={stats['private']}")
+    print("[SERVER] Shutdown complete.")
+
+
+def _signal_handler(signum, frame):
+    print(f"\n[SERVER] Received signal {signum}, initiating graceful shutdown...")
+    shutdown_event.set()
+
+
 def main():
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+    
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((HOST, PORT))
     server.listen(CONFIG["listen_backlog"])
+    server.settimeout(1.0)
+    
     print(f"[SERVER] Listening on {HOST}:{PORT}")
-
+    
     threading.Thread(target=reap_stale_clients, daemon=True).start()
-
-    try:
-        while True:
+    
+    while not shutdown_event.is_set():
+        try:
             conn, addr = server.accept()
-            print(f"[SERVER] New connection from {addr}")
-            t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
-            t.start()
-    except KeyboardInterrupt:
-        print("\n[SERVER] Shutting down.")
-        with clients_lock:
-            online = len(clients)
-        print(f"[STATS] Online={online} Msgs={stats['messages']} Broadcasts={stats['broadcasts']} Private={stats['private']}")
-    finally:
-        server.close()
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+            
+        print(f"[SERVER] New connection from {addr}")
+        t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
+        t.start()
+        
+    graceful_shutdown(server)
 
 
 if __name__ == "__main__":
