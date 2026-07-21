@@ -2,16 +2,39 @@ import socket
 import threading
 import queue
 import json
+import os
+import time
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
+
+DEFAULT_CLIENT_CONFIG = {
+    "server_host": "10.0.0.1",
+    "server_port": 5000,
+    "heartbeat_interval_seconds": 10,
+    "gui_poll_interval_ms": 100
+}
+
+def load_config(path="config.json"):
+    cfg = DEFAULT_CLIENT_CONFIG.copy()
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                user_cfg = json.load(f).get("client", {})
+            cfg.update(user_cfg)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"[CONFIG] Failed to load {path}, using defaults: {e}")
+    return cfg
+
+CONFIG = load_config()
 
 # ==========================================
 # 1. Network Logic (Independent of GUI)
 # ==========================================
 class NetworkClient:
-    def __init__(self, host='10.0.0.1', port=5000):
-        self.host = host
-        self.port = port
+    def __init__(self, host=None, port=None):
+        self.host = host or CONFIG["server_host"]
+        self.port = port or CONFIG["server_port"]
+        self.heartbeat_interval = CONFIG["heartbeat_interval_seconds"]
         self.sock = None
         self.running = False
         self.msg_queue = queue.Queue()
@@ -49,6 +72,7 @@ class NetworkClient:
             if response.get("status") == "success":
                 self.running = True
                 threading.Thread(target=self.receive_loop, daemon=True).start()
+                threading.Thread(target=self.heartbeat_loop, daemon=True).start()
                 return True, "ok"
             else:
                 self.sock.close()
@@ -77,6 +101,14 @@ class NetworkClient:
             except Exception:
                 self.running = False
                 break
+
+    def heartbeat_loop(self):
+        """Sends a lightweight liveness signal so the server's reaper
+        thread does not mistake an idle-but-alive client for a dead one."""
+        while self.running:
+            time.sleep(self.heartbeat_interval)
+            if self.running:
+                self.send("/heartbeat")
 
     def send(self, message):
         if self.sock and self.running:

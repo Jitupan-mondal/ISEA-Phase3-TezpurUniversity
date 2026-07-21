@@ -1,0 +1,16 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5000,
+    "listen_backlog": 20,
+    "recv_buffer_size": 4096,
+    "heartbeat_timeout_seconds": 30,
+    "reaper_interval_seconds": 5
+  },
+  "client": {
+    "server_host": "10.0.0.1",
+    "server_port": 5000,
+    "heartbeat_interval_seconds": 10,
+    "gui_poll_interval_ms": 100
+  }
+}

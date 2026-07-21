@@ -5,14 +5,36 @@ import os
 import csv
 import json
 import hashlib
-
-HOST = "0.0.0.0"
-PORT = 5000
+import time
 
 USERS_FILE = "users.json"
 CHAT_LOG = "chat_history.csv"
 SERVER_LOG = "server_log.txt"
 SECURITY_LOG = "security_log.txt"
+
+DEFAULT_SERVER_CONFIG = {
+    "host": "0.0.0.0",
+    "port": 5000,
+    "listen_backlog": 20,
+    "recv_buffer_size": 4096,
+    "heartbeat_timeout_seconds": 30,
+    "reaper_interval_seconds": 5
+}
+
+def load_config(path="config.json"):
+    cfg = DEFAULT_SERVER_CONFIG.copy()
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                user_cfg = json.load(f).get("server", {})
+            cfg.update(user_cfg)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"[CONFIG] Failed to load {path}, using defaults: {e}")
+    return cfg
+
+CONFIG = load_config()
+HOST = CONFIG["host"]
+PORT = CONFIG["port"]
 
 clients = {}
 logged_in_users = set()
@@ -120,6 +142,11 @@ def process_message(conn, username, message):
     if not message:
         return
 
+    if message == "/heartbeat":
+        # Lightweight liveness signal; last_seen is refreshed by the caller.
+        # No logging, no broadcast, no stats increment.
+        return
+
     stats["messages"] += 1
 
     if message == "/list":
@@ -147,6 +174,33 @@ def process_message(conn, username, message):
     log_chat(username, "ALL", "broadcast", message)
     stats["broadcasts"] += 1
     broadcast(f"[{username}] {message}\n")
+
+
+def reap_stale_clients():
+    """Background thread: closes sockets that haven't sent anything
+    (including heartbeats) within heartbeat_timeout_seconds. Closing the
+    socket unblocks the client's handle_client() recv() loop, which then
+    performs its normal cleanup/logging in the except/finally block."""
+    timeout = CONFIG["heartbeat_timeout_seconds"]
+    interval = CONFIG["reaper_interval_seconds"]
+    while True:
+        time.sleep(interval)
+        now = time.time()
+        stale = []
+        with clients_lock:
+            for conn, info in clients.items():
+                if now - info.get("last_seen", now) > timeout:
+                    stale.append((conn, info["username"]))
+        for conn, uname in stale:
+            print(f"[REAPER] {uname} timed out, closing connection")
+            try:
+                conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                conn.close()
+            except OSError:
+                pass
 
 
 def handle_client(conn, addr):
@@ -208,6 +262,7 @@ def handle_client(conn, addr):
                 "ip": ip,
                 "port": port,
                 "login_time": timestamp(),
+                "last_seen": time.time(),
             }
 
         log_server_event("CONNECTED", username, ip)
@@ -223,15 +278,21 @@ def handle_client(conn, addr):
         if remainder:
             leftover_text = remainder.decode("utf-8", errors="ignore").strip()
             if leftover_text:
+                with clients_lock:
+                    if conn in clients:
+                        clients[conn]["last_seen"] = time.time()
                 process_message(conn, username, leftover_text)
 
         while True:
-            data = conn.recv(4096)
+            data = conn.recv(CONFIG["recv_buffer_size"])
             if not data:
                 break
             message = data.decode("utf-8").strip()
             if not message:
                 continue
+            with clients_lock:
+                if conn in clients:
+                    clients[conn]["last_seen"] = time.time()
             process_message(conn, username, message)
 
     except Exception as e:
@@ -253,8 +314,11 @@ def main():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((HOST, PORT))
-    server.listen(5)
+    server.listen(CONFIG["listen_backlog"])
     print(f"[SERVER] Listening on {HOST}:{PORT}")
+
+    threading.Thread(target=reap_stale_clients, daemon=True).start()
+
     try:
         while True:
             conn, addr = server.accept()
